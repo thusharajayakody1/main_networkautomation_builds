@@ -1,0 +1,72 @@
+node(label: 'master'){
+    
+    stage('clear workspcace'){
+        deleteDir()
+        sh 'ls -lah'
+    }
+   
+    
+    stage('git checkout'){
+        echo 'cloning git repository'
+        git credentialsId: 'Git_credentials', url: 'https://github.com/thusharajayakody1/main_networkautomation_builds.git'
+        echo 'cloned successfully'
+    }
+    
+    stage('building file on python Virtual environment'){
+        withPythonEnv('/usr/bin/python'){
+            if (fileExists('Buildjobpipfile.txt')){
+                sh 'pip install -r Buildjobpipfile.txt'
+            }
+            else{
+                echo 'file not found Buildjobpipfile.txt'
+            }
+            def pythonfile = '/var/lib/jenkins/workspace/pipe-vtpconfigsnet/vtpconfigration/vtpconfig.py'
+            if (fileExists(pythonfile)){
+                echo 'file exists vtpconfigration/vtpconfig.py '
+                sh "cd vtpconfigration && python vtpconfig.py "
+                echo 'success'
+            }
+            else {
+                echo 'file not found vtpconfigration/vtpconfig.py '
+            }
+            
+        }
+    }
+    
+    stage('buiding docker image for the script'){
+        echo 'building docker image'
+        sh 'docker build -t thusharajaye/networkpipelinevtpconfig -f /var/lib/jenkins/workspace/pipe-vtpconfigsnet/vtpconfigration/Dockerfile .'
+    }
+    
+    stage('pushing docker image to dockerhub'){
+        withCredentials([string(credentialsId: 'Docker_cred', variable: 'Docker_cred')]){
+            sh "docker login -u thusharajaye -p ${Docker_cred}"
+            sh 'docker push thusharajaye/networkpipelinevtpconfig'
+        }
+        
+    }
+    stage('Prune Docker'){
+    
+        echo 'clearing the CICD SERVER'
+        sh 'docker system prune --all'
+    
+    }
+    stage('deploying python script via docker'){
+        def Dockerrun = 'docker run -d -p 8080:80 --name networkpipelinevtpconfig thusharajaye/networkpipelinevtpconfig '
+        sshagent(['deployment_server_ssh_key']){
+            sh 'ssh -o StrictHostKeyChecking=no ubuntu@54.198.122.118 -tt -f docker stop networkpipelinevtpconfig || true'
+            sh 'ssh ubuntu@54.198.122.118 docker rm networkpipelinevtpconfig || true'
+            sh 'ssh ubuntu@54.198.122.118 docker rmi -f $(docker images -q) || true'
+            sh 'ssh ubuntu@54.198.122.118 $(Dockerrun)'
+            
+        }
+        
+    }
+    stage('clear workspace'){
+        deleteDir()
+        sh 'ls -lah'
+        
+    }
+    
+    
+}
